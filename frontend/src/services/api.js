@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api' })
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ''
+
+const api = axios.create({ baseURL: `${BACKEND_URL}/api` })
 
 export const createProject = (name, systemType) =>
   api.post('/projects', { name, system_type: systemType })
