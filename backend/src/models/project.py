@@ -40,6 +40,14 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+    def __init__(self, **kwargs):
+        kwargs.setdefault("id", f"PROJ-{uuid.uuid4().hex[:8].upper()}")
+        kwargs.setdefault("state", ProjectState.DRAFT)
+        kwargs.setdefault("industry", "Life Sciences")
+        kwargs.setdefault("created_at", datetime.now(timezone.utc))
+        kwargs.setdefault("updated_at", datetime.now(timezone.utc))
+        super().__init__(**kwargs)
+
     def advance_state(self) -> None:
         current = ProjectState(self.state)
         next_state = STATE_TRANSITIONS.get(current)
