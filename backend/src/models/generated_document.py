@@ -1,7 +1,7 @@
 import uuid
 from enum import Enum
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey
+from sqlalchemy import String, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from backend.src.models.base import Base
 
@@ -35,3 +35,4 @@ class GeneratedDocument(Base):
     hitl_pdf_path: Mapped[str | None] = mapped_column(String, nullable=True)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     hitl_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    generated_content: Mapped[dict | None] = mapped_column(JSON, nullable=True)
