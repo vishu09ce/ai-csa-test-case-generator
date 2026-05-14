@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ai-csa-backend
+    runtime: python
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.index:app --host 0.0.0.0 --port $PORT
+    plan: free
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LITELLM_MODEL
+        value: groq/llama3-70b-8192
+      - key: DATABASE_URL
+        value: sqlite:///./app.db
+      - key: FRONTEND_URL
+        value: https://vishu09ce.github.io
+      - key: PYTHON_VERSION
+        value: 3.13.0
