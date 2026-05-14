@@ -217,6 +217,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Virtual environment
+backend/venv/
+
 # Project specific
 node_modules/
 frontend/dist/
