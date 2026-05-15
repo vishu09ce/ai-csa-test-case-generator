@@ -132,7 +132,13 @@ export default function ProjectDetail() {
 
       {message && <div className="bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg px-4 py-3 mb-4">{message}</div>}
       {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">{error}</div>}
-      {isGenerating && <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm rounded-lg px-4 py-3 mb-4">⏳ Document generation in progress...</div>}
+      {isGenerating && (() => {
+        const activeJob = status?.active_jobs?.find(j => j.status === 'IN_PROGRESS')
+        const progressText = activeJob?.total_requirements > 0
+          ? `Generating ${activeJob.completed_requirements} of ${activeJob.total_requirements} requirements...`
+          : 'Document generation in progress...'
+        return <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm rounded-lg px-4 py-3 mb-4">⏳ {progressText}</div>
+      })()}
 
       {state === 'DRAFT' && (
         <div className="bg-white border rounded-lg p-5 shadow-sm mb-6">
