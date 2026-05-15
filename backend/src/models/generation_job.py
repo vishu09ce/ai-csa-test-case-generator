@@ -1,7 +1,7 @@
 import uuid
 from enum import Enum
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey
+from sqlalchemy import String, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from backend.src.models.base import Base
 
@@ -23,3 +23,5 @@ class GenerationJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    total_requirements: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_requirements: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

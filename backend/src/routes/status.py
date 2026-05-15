@@ -42,6 +42,8 @@ def get_project_status(project_id: str, db: Session = Depends(get_db)):
                 "started_at": j.started_at,
                 "completed_at": j.completed_at,
                 "error": j.error_message,
+                "total_requirements": j.total_requirements,
+                "completed_requirements": j.completed_requirements,
             }
             for j in jobs[:5]
         ],
