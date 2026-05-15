@@ -14,11 +14,14 @@ from backend.src.services.normaliser import (
     normalise_stp, normalise_utr, normalise_asr
 )
 from backend.src.services.output_renderer import render_document
+from backend.src.services.rag_service import build_all_context_packages
+from backend.src.services.output_validator import validate_and_correct
+from backend.src.prompts.requirement_context import ProjectMetadata
 from backend.src.prompts.sap_prompt import build_sap_prompt
 from backend.src.prompts.pra_prompt import build_pra_prompt
 from backend.src.prompts.rtm_prompt import build_rtm_prompt
-from backend.src.prompts.stp_prompt import build_stp_prompt
-from backend.src.prompts.utr_prompt import build_utr_prompt
+from backend.src.prompts.stp_prompt import build_stp_prompt, build_stp_system_prompt, build_stp_user_prompt
+from backend.src.prompts.utr_prompt import build_utr_prompt, build_utr_system_prompt, build_utr_user_prompt
 from backend.src.prompts.asr_prompt import build_asr_prompt
 
 
@@ -94,6 +97,60 @@ def _fail_job(job: GenerationJob, error: str, db: Session) -> None:
     db.commit()
 
 
+async def _generate_cases_per_requirement(
+    ctx_packages: list,
+    doc_type: str,
+    metadata: ProjectMetadata,
+    valid_req_ids: list[str],
+) -> list[dict]:
+    """
+    One LLM call per requirement context package.
+    Each response is validated and corrected (max 2 attempts).
+    Multi-AC responses (lists) are flattened with sequential IDs.
+    LLM failures produce a placeholder entry with VALIDATION_FAILED flag.
+    """
+    if doc_type == "STP":
+        system_prompt = build_stp_system_prompt(metadata)
+        build_user = build_stp_user_prompt
+        id_prefix = "TC"
+        id_field = "tc_id"
+    else:
+        system_prompt = build_utr_system_prompt(metadata)
+        build_user = build_utr_user_prompt
+        id_prefix = "UTR"
+        id_field = "utr_id"
+
+    collected = []
+    counter = 1
+
+    for ctx in ctx_packages:
+        user_prompt = build_user(ctx)
+        try:
+            raw = await call_llm(user_prompt, system_prompt)
+        except HTTPException:
+            collected.append({
+                id_field: f"{id_prefix}-{counter:03d}",
+                "req_id": ctx.req_id,
+                "confidence": "Low",
+                "flags": ["VALIDATION_FAILED", "LLM_CALL_FAILED"],
+            })
+            counter += 1
+            continue
+
+        items = raw if isinstance(raw, list) else [raw]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item[id_field] = f"{id_prefix}-{counter:03d}"
+            validated = await validate_and_correct(
+                item, doc_type, valid_req_ids, ctx.risk_classification, system_prompt
+            )
+            collected.append(validated)
+            counter += 1
+
+    return collected
+
+
 async def generate_sap(project_id: str, system_type: str, db: Session) -> GeneratedDocument:
     doc_record = _create_or_reset_doc(project_id, DocCode.SAP, db)
     job = _create_job(project_id, DocCode.SAP, db)
@@ -153,40 +210,95 @@ async def generate_pra(project_id: str, system_type: str, db: Session) -> Genera
 async def generate_rtm_stp_utr(project_id: str, db: Session) -> list[GeneratedDocument]:
     sap_content = _get_generated_content(project_id, DocCode.SAP, db)
     pra_content = _get_generated_content(project_id, DocCode.PRA, db)
-    frs_text = _get_source_text(project_id, "FRS", db)
 
     urs_text = _get_source_text(project_id, "URS", db)
+    frs_text = _get_source_text(project_id, "FRS", db)
     brd_text = _get_source_text(project_id, "BRD", db)
-    extracted = extract_content(urs_text, frs_text, brd_text)
 
+    project = db.query(Project).filter(Project.id == project_id).first()
+    metadata = ProjectMetadata(
+        project_id=project_id,
+        system_name=project.name if project else project_id,
+        system_type=project.system_type if project else "LIMS",
+    )
+
+    # RAG: build one context package per requirement
+    ctx_packages = build_all_context_packages(
+        urs_text, frs_text, brd_text, sap_content, pra_content, metadata
+    )
+    valid_req_ids = [p.req_id for p in ctx_packages]
+
+    high_risk_pkgs = [p for p in ctx_packages if p.risk_classification == "High Process Risk"]
+    not_high_pkgs = [p for p in ctx_packages if p.risk_classification != "High Process Risk"]
+
+    # RTM — single document-level call (unchanged from pre-Sprint 1)
+    extracted = extract_content(urs_text, frs_text, brd_text)
     risk_classifications = pra_content.get("risk_classifications", [])
-    high_risk = [r for r in risk_classifications if "Not High" not in r.get("risk_classification", "")]
-    not_high_risk = [r for r in risk_classifications if "Not High" in r.get("risk_classification", "")]
 
     results = []
-    for doc_code, prompt_fn, normalise_fn, extra in [
-        (DocCode.RTM, lambda: build_rtm_prompt(extracted, risk_classifications, project_id), lambda r: r, {}),
-        (DocCode.STP, lambda: build_stp_prompt(high_risk, frs_text, project_id), lambda r: r, {}),
-        (DocCode.UTR, lambda: build_utr_prompt(not_high_risk, frs_text, project_id), lambda r: r, {}),
-    ]:
-        doc_record = _create_or_reset_doc(project_id, doc_code, db)
-        job = _create_job(project_id, doc_code, db)
-        try:
-            raw = await call_llm(prompt_fn())
-            normalised = normalise_fn(raw)
-            word_path, pdf_path = render_document(doc_code, normalised, project_id)
-            doc_record.status = DocumentStatus.AI_COMPLETE
-            doc_record.word_path = word_path
-            doc_record.ai_pdf_path = pdf_path
-            doc_record.generated_content = normalised
-            doc_record.generated_at = datetime.now(timezone.utc)
-            db.commit()
-            db.refresh(doc_record)
-            _complete_job(job, db)
-            results.append(doc_record)
-        except Exception as e:
-            _fail_job(job, str(e), db)
-            raise
+
+    rtm_record = _create_or_reset_doc(project_id, DocCode.RTM, db)
+    rtm_job = _create_job(project_id, DocCode.RTM, db)
+    try:
+        raw = await call_llm(build_rtm_prompt(extracted, risk_classifications, project_id))
+        word_path, pdf_path = render_document(DocCode.RTM, raw, project_id)
+        rtm_record.status = DocumentStatus.AI_COMPLETE
+        rtm_record.word_path = word_path
+        rtm_record.ai_pdf_path = pdf_path
+        rtm_record.generated_content = raw
+        rtm_record.generated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(rtm_record)
+        _complete_job(rtm_job, db)
+        results.append(rtm_record)
+    except Exception as e:
+        _fail_job(rtm_job, str(e), db)
+        raise
+
+    # STP — per-requirement loop with RAG context and output validation
+    stp_record = _create_or_reset_doc(project_id, DocCode.STP, db)
+    stp_job = _create_job(project_id, DocCode.STP, db)
+    try:
+        test_cases = await _generate_cases_per_requirement(
+            high_risk_pkgs, "STP", metadata, valid_req_ids
+        )
+        normalised = normalise_stp({"test_cases": test_cases})
+        word_path, pdf_path = render_document(DocCode.STP, normalised, project_id)
+        stp_record.status = DocumentStatus.AI_COMPLETE
+        stp_record.word_path = word_path
+        stp_record.ai_pdf_path = pdf_path
+        stp_record.generated_content = normalised
+        stp_record.generated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(stp_record)
+        _complete_job(stp_job, db)
+        results.append(stp_record)
+    except Exception as e:
+        _fail_job(stp_job, str(e), db)
+        raise
+
+    # UTR — per-requirement loop with RAG context and output validation
+    utr_record = _create_or_reset_doc(project_id, DocCode.UTR, db)
+    utr_job = _create_job(project_id, DocCode.UTR, db)
+    try:
+        test_records = await _generate_cases_per_requirement(
+            not_high_pkgs, "UTR", metadata, valid_req_ids
+        )
+        normalised = normalise_utr({"test_records": test_records})
+        word_path, pdf_path = render_document(DocCode.UTR, normalised, project_id)
+        utr_record.status = DocumentStatus.AI_COMPLETE
+        utr_record.word_path = word_path
+        utr_record.ai_pdf_path = pdf_path
+        utr_record.generated_content = normalised
+        utr_record.generated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(utr_record)
+        _complete_job(utr_job, db)
+        results.append(utr_record)
+    except Exception as e:
+        _fail_job(utr_job, str(e), db)
+        raise
+
     return results
 
 

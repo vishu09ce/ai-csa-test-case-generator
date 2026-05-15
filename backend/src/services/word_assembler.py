@@ -187,25 +187,44 @@ def assemble_stp(data: dict, project_id: str) -> Document:
     doc = Document()
     _add_stamp(doc, "STP", project_id)
     doc.add_heading("Scripted Test Protocol and Execution Record", 0)
-    doc.add_paragraph(f"Document 4 of 6  |  STP  |  Template v1.1  |  FDA CSA Final Guidance (September 2025)")
+    doc.add_paragraph(f"Document 4 of 6  |  STP  |  Template v1.2  |  FDA CSA Final Guidance (September 2025)")
 
     _add_heading(doc, "Section 1 — Document Control")
     _add_field_table(doc, [
         ("Document ID", f"STP-{project_id}-001"),
         ("Project ID", project_id),
         ("Document Number", "Document 4 of 6"),
-        ("Template Version", "Template v1.1 (Auto-populated)"),
+        ("Template Version", "Template v1.2 (Auto-populated)"),
     ])
 
     _add_heading(doc, "Section 4 — Test Cases")
     test_cases = data.get("test_cases", [])
-    headers = ["TC ID", "Req ID", "Preconditions", "Test Steps", "Expected Result", "Actual Result", "Pass/Fail"]
+    headers = ["TC ID", "Req ID", "Preconditions", "Test Steps", "Expected Result",
+               "Actual Result", "Pass/Fail", "AI Confidence", "Flags"]
     rows = [[
-        tc.get("tc_id", ""), tc.get("req_id", ""), tc.get("preconditions", ""),
-        tc.get("test_steps", ""), tc.get("expected_result", ""),
-        tc.get("actual_result", ""), tc.get("pass_fail", "")
+        tc.get("tc_id", ""),
+        tc.get("req_id", ""),
+        "\n".join(tc.get("preconditions", [])) if isinstance(tc.get("preconditions"), list) else str(tc.get("preconditions", "")),
+        "\n".join(tc.get("test_steps", [])) if isinstance(tc.get("test_steps"), list) else str(tc.get("test_steps", "")),
+        tc.get("expected_result", ""),
+        tc.get("actual_result", ""),
+        tc.get("pass_fail", ""),
+        tc.get("confidence", ""),
+        ", ".join(tc.get("flags", [])) if isinstance(tc.get("flags"), list) else str(tc.get("flags", "")),
     ] for tc in test_cases]
     _add_data_table(doc, headers, rows)
+
+    high_count   = sum(1 for tc in test_cases if tc.get("confidence") == "High")
+    medium_count = sum(1 for tc in test_cases if tc.get("confidence") == "Medium")
+    low_count    = sum(1 for tc in test_cases if tc.get("confidence") == "Low")
+    failed_count = sum(1 for tc in test_cases if "VALIDATION_FAILED" in tc.get("flags", []))
+    _add_heading(doc, "Section 4.1 — AI Confidence Distribution", level=2)
+    _add_data_table(doc, ["Confidence Level", "Count"], [
+        ["High",              str(high_count)],
+        ["Medium",            str(medium_count)],
+        ["Low",               str(low_count)],
+        ["VALIDATION_FAILED", str(failed_count)],
+    ])
 
     doc.add_paragraph("▶ HARD STOP — HITL GATE: No test execution begins without a completed Approver signature.")
 
@@ -230,25 +249,43 @@ def assemble_utr(data: dict, project_id: str) -> Document:
     doc = Document()
     _add_stamp(doc, "UTR", project_id)
     doc.add_heading("Unscripted Test Record and Execution Record", 0)
-    doc.add_paragraph(f"Document 5 of 6  |  UTR  |  Template v1.1  |  FDA CSA Final Guidance (September 2025)")
+    doc.add_paragraph(f"Document 5 of 6  |  UTR  |  Template v1.2  |  FDA CSA Final Guidance (September 2025)")
 
     _add_heading(doc, "Section 1 — Document Control")
     _add_field_table(doc, [
         ("Document ID", f"UTR-{project_id}-001"),
         ("Project ID", project_id),
         ("Document Number", "Document 5 of 6"),
-        ("Template Version", "Template v1.1 (Auto-populated)"),
+        ("Template Version", "Template v1.2 (Auto-populated)"),
     ])
 
     _add_heading(doc, "Section 4 — Test Records")
     test_records = data.get("test_records", [])
-    headers = ["UTR ID", "Req ID", "Feature", "AI-Suggested Exploratory Scenarios", "Tester Observations", "Conclusion"]
+    headers = ["UTR ID", "Req ID", "Feature Description", "AI-Suggested Exploratory Scenarios",
+               "Tester Observations", "Conclusion", "AI Confidence", "Flags"]
     rows = [[
-        tr.get("utr_id", ""), tr.get("req_id", ""), tr.get("feature", ""),
-        tr.get("exploratory_scenarios", ""), tr.get("tester_observations", ""),
-        tr.get("conclusion", "")
+        tr.get("utr_id", ""),
+        tr.get("req_id", ""),
+        tr.get("feature_description", ""),
+        "\n".join(tr.get("exploratory_scenarios", [])) if isinstance(tr.get("exploratory_scenarios"), list) else str(tr.get("exploratory_scenarios", "")),
+        tr.get("tester_observations", ""),
+        tr.get("conclusion", ""),
+        tr.get("confidence", ""),
+        ", ".join(tr.get("flags", [])) if isinstance(tr.get("flags"), list) else str(tr.get("flags", "")),
     ] for tr in test_records]
     _add_data_table(doc, headers, rows)
+
+    high_count   = sum(1 for tr in test_records if tr.get("confidence") == "High")
+    medium_count = sum(1 for tr in test_records if tr.get("confidence") == "Medium")
+    low_count    = sum(1 for tr in test_records if tr.get("confidence") == "Low")
+    failed_count = sum(1 for tr in test_records if "VALIDATION_FAILED" in tr.get("flags", []))
+    _add_heading(doc, "Section 4.1 — AI Confidence Distribution", level=2)
+    _add_data_table(doc, ["Confidence Level", "Count"], [
+        ["High",              str(high_count)],
+        ["Medium",            str(medium_count)],
+        ["Low",               str(low_count)],
+        ["VALIDATION_FAILED", str(failed_count)],
+    ])
 
     _add_heading(doc, "Section 6 — Record Closure")
     _add_signature_block(doc, [
