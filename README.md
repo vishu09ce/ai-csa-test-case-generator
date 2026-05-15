@@ -17,5 +17,9 @@ A web-based Proof of Concept application that automatically generates FDA CSA-co
 - **LLM Provider:** Groq
 - **Database:** SQLite + SQLAlchemy
 
+## Live Demo
+- **Frontend:** https://vishu09ce.github.io/ai-csa-test-case-generator/
+- **Backend API:** https://ai-csa-backend.onrender.com
+
 ## Getting Started
 Documentation coming soon.
