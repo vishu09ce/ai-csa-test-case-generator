@@ -1,6 +1,10 @@
+import os
+import asyncio
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
+
+CONCURRENCY = int(os.getenv("LLM_CONCURRENCY", "5"))
 
 from backend.src.models import (
     Project, SourceDocument, GeneratedDocument, GenerationJob,
@@ -97,55 +101,85 @@ def _fail_job(job: GenerationJob, error: str, db: Session) -> None:
     db.commit()
 
 
+def _get_completed_req_ids(project_id: str, doc_code: str, db: Session) -> set[str]:
+    record = db.query(GeneratedDocument).filter(
+        GeneratedDocument.project_id == project_id,
+        GeneratedDocument.doc_code == doc_code,
+        GeneratedDocument.status == DocumentStatus.AI_COMPLETE,
+    ).first()
+    if not record or not record.generated_content:
+        return set()
+    key = "test_cases" if doc_code == "STP" else "test_records"
+    items = record.generated_content.get(key, [])
+    return {item.get("req_id") for item in items if item.get("req_id")}
+
+
 async def _generate_cases_per_requirement(
     ctx_packages: list,
     doc_type: str,
     metadata: ProjectMetadata,
     valid_req_ids: list[str],
+    job=None,
+    db=None,
 ) -> list[dict]:
-    """
-    One LLM call per requirement context package.
-    Each response is validated and corrected (max 2 attempts).
-    Multi-AC responses (lists) are flattened with sequential IDs.
-    LLM failures produce a placeholder entry with VALIDATION_FAILED flag.
-    """
     if doc_type == "STP":
         system_prompt = build_stp_system_prompt(metadata)
         build_user = build_stp_user_prompt
-        id_prefix = "TC"
-        id_field = "tc_id"
+        id_prefix, id_field = "TC", "tc_id"
     else:
         system_prompt = build_utr_system_prompt(metadata)
         build_user = build_utr_user_prompt
-        id_prefix = "UTR"
-        id_field = "utr_id"
+        id_prefix, id_field = "UTR", "utr_id"
 
+    semaphore = asyncio.Semaphore(CONCURRENCY)
+    results = [None] * len(ctx_packages)
+
+    async def _process_one(idx: int, ctx):
+        async with semaphore:
+            user_prompt = build_user(ctx)
+            try:
+                raw = await call_llm(user_prompt, system_prompt)
+            except HTTPException:
+                results[idx] = {
+                    id_field: f"{id_prefix}-{idx + 1:03d}",
+                    "req_id": ctx.req_id,
+                    "confidence": "Low",
+                    "flags": ["VALIDATION_FAILED", "LLM_CALL_FAILED"],
+                }
+                if job and db:
+                    job.completed_requirements = (job.completed_requirements or 0) + 1
+                    db.commit()
+                return
+
+            items = raw if isinstance(raw, list) else [raw]
+            validated_items = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item[id_field] = f"{id_prefix}-{idx + 1:03d}"
+                validated = await validate_and_correct(
+                    item, doc_type, valid_req_ids, ctx.risk_classification, system_prompt
+                )
+                validated_items.append(validated)
+
+            results[idx] = validated_items[0] if len(validated_items) == 1 else validated_items
+
+            if job and db:
+                job.completed_requirements = (job.completed_requirements or 0) + 1
+                db.commit()
+
+    await asyncio.gather(*[_process_one(i, ctx) for i, ctx in enumerate(ctx_packages)])
+
+    # Flatten multi-AC results and assign sequential IDs
     collected = []
     counter = 1
-
-    for ctx in ctx_packages:
-        user_prompt = build_user(ctx)
-        try:
-            raw = await call_llm(user_prompt, system_prompt)
-        except HTTPException:
-            collected.append({
-                id_field: f"{id_prefix}-{counter:03d}",
-                "req_id": ctx.req_id,
-                "confidence": "Low",
-                "flags": ["VALIDATION_FAILED", "LLM_CALL_FAILED"],
-            })
-            counter += 1
+    for r in results:
+        if r is None:
             continue
-
-        items = raw if isinstance(raw, list) else [raw]
+        items = r if isinstance(r, list) else [r]
         for item in items:
-            if not isinstance(item, dict):
-                continue
             item[id_field] = f"{id_prefix}-{counter:03d}"
-            validated = await validate_and_correct(
-                item, doc_type, valid_req_ids, ctx.risk_classification, system_prompt
-            )
-            collected.append(validated)
+            collected.append(item)
             counter += 1
 
     return collected
@@ -255,12 +289,16 @@ async def generate_rtm_stp_utr(project_id: str, db: Session) -> list[GeneratedDo
         _fail_job(rtm_job, str(e), db)
         raise
 
-    # STP — per-requirement loop with RAG context and output validation
+    # STP — parallel per-requirement calls with resume support
     stp_record = _create_or_reset_doc(project_id, DocCode.STP, db)
     stp_job = _create_job(project_id, DocCode.STP, db)
     try:
+        completed_stp_ids = _get_completed_req_ids(project_id, DocCode.STP, db)
+        pending_stp_pkgs = [p for p in high_risk_pkgs if p.req_id not in completed_stp_ids]
+        stp_job.total_requirements = len(pending_stp_pkgs)
+        db.commit()
         test_cases = await _generate_cases_per_requirement(
-            high_risk_pkgs, "STP", metadata, valid_req_ids
+            pending_stp_pkgs, "STP", metadata, valid_req_ids, job=stp_job, db=db
         )
         normalised = normalise_stp({"test_cases": test_cases})
         word_path, pdf_path = render_document(DocCode.STP, normalised, project_id)
@@ -277,12 +315,16 @@ async def generate_rtm_stp_utr(project_id: str, db: Session) -> list[GeneratedDo
         _fail_job(stp_job, str(e), db)
         raise
 
-    # UTR — per-requirement loop with RAG context and output validation
+    # UTR — parallel per-requirement calls with resume support
     utr_record = _create_or_reset_doc(project_id, DocCode.UTR, db)
     utr_job = _create_job(project_id, DocCode.UTR, db)
     try:
+        completed_utr_ids = _get_completed_req_ids(project_id, DocCode.UTR, db)
+        pending_utr_pkgs = [p for p in not_high_pkgs if p.req_id not in completed_utr_ids]
+        utr_job.total_requirements = len(pending_utr_pkgs)
+        db.commit()
         test_records = await _generate_cases_per_requirement(
-            not_high_pkgs, "UTR", metadata, valid_req_ids
+            pending_utr_pkgs, "UTR", metadata, valid_req_ids, job=utr_job, db=db
         )
         normalised = normalise_utr({"test_records": test_records})
         word_path, pdf_path = render_document(DocCode.UTR, normalised, project_id)
