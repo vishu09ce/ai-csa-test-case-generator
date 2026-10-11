@@ -27,6 +27,9 @@ from backend.src.prompts.rtm_prompt import build_rtm_prompt
 from backend.src.prompts.stp_prompt import build_stp_prompt, build_stp_system_prompt, build_stp_user_prompt
 from backend.src.prompts.utr_prompt import build_utr_prompt, build_utr_system_prompt, build_utr_user_prompt
 from backend.src.prompts.asr_prompt import build_asr_prompt
+from backend.src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _get_source_text(project_id: str, doc_type: str, db: Session) -> str:
@@ -89,6 +92,7 @@ def _create_job(project_id: str, doc_code: str, db: Session) -> GenerationJob:
 
 
 def _complete_job(job: GenerationJob, db: Session) -> None:
+    logger.info("%s %s job complete", job.project_id, job.doc_code)
     job.status = JobStatus.COMPLETE
     job.completed_at = datetime.now(timezone.utc)
     db.commit()
@@ -96,6 +100,7 @@ def _complete_job(job: GenerationJob, db: Session) -> None:
 
 def _fail_job(job: GenerationJob, doc_record: GeneratedDocument, error: str, db: Session) -> None:
     db.rollback()
+    logger.error("%s %s job failed: %s", job.project_id, job.doc_code, error)
     job.status = JobStatus.FAILED
     job.error_message = error
     job.completed_at = datetime.now(timezone.utc)
