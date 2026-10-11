@@ -6,6 +6,9 @@ from backend.src.models import SourceDocument, SourceDocType, Project, ProjectSt
 from backend.src.utils.file_validator import validate_upload
 from backend.src.utils.file_parser import parse_document
 from backend.src.utils.file_store import source_file_path, save_file
+from backend.src.utils.logger import get_logger, describe_path
+
+logger = get_logger(__name__)
 
 
 MANDATORY_DOCS = {SourceDocType.URS, SourceDocType.FRS}
@@ -34,6 +37,7 @@ async def handle_source_upload(
 
     path = source_file_path(project_id, doc_type, ext)
     await save_file(path, content)
+    logger.info("%s %s source saved: %s", project_id, doc_type, describe_path(path))
 
     existing = db.query(SourceDocument).filter(
         SourceDocument.project_id == project_id,

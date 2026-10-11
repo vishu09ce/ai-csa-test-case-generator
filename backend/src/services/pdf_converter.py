@@ -3,6 +3,9 @@ import shutil
 import subprocess
 import tempfile
 from fastapi import HTTPException
+from backend.src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 LIBREOFFICE_TIMEOUT_SECONDS = 120
 
@@ -21,6 +24,7 @@ def _convert_with_libreoffice(soffice: str, word_path: str, pdf_path: str) -> No
             text=True,
             timeout=LIBREOFFICE_TIMEOUT_SECONDS,
         )
+        logger.info("LibreOffice exit=%s stdout=%r stderr=%r", result.returncode, result.stdout.strip(), result.stderr.strip())
         base_name = os.path.splitext(os.path.basename(word_path))[0]
         produced = os.path.join(out_dir, base_name + ".pdf")
         if result.returncode != 0 or not os.path.exists(produced):
@@ -38,9 +42,11 @@ def convert_to_pdf(word_path: str, pdf_path: str) -> None:
         raise HTTPException(status_code=500, detail=f"Word file not found for PDF conversion: {word_path}")
     try:
         soffice = _find_libreoffice()
+        logger.info("Converting %s -> %s using %s", word_path, pdf_path, soffice or "docx2pdf")
         if soffice:
             _convert_with_libreoffice(soffice, word_path, pdf_path)
         else:
             _convert_with_docx2pdf(word_path, pdf_path)
     except Exception as e:
+        logger.exception("PDF conversion failed for %s", word_path)
         raise HTTPException(status_code=500, detail=f"PDF conversion failed: {str(e)}")

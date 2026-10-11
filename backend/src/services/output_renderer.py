@@ -4,6 +4,9 @@ from backend.src.services.word_assembler import (
 )
 from backend.src.services.pdf_converter import convert_to_pdf
 from backend.src.utils.file_store import word_review_path, ai_pdf_path
+from backend.src.utils.logger import get_logger, describe_path
+
+logger = get_logger(__name__)
 
 
 ASSEMBLERS = {
@@ -30,6 +33,8 @@ def render_document(doc_code: str, data: dict, project_id: str, system_type: str
         doc = assembler(data, project_id)
 
     doc.save(word_path)
+    logger.info("%s %s Word saved: %s", project_id, doc_code, describe_path(word_path))
     convert_to_pdf(word_path, pdf_path)
+    logger.info("%s %s PDF saved: %s; Word now: %s", project_id, doc_code, describe_path(pdf_path), describe_path(word_path))
 
     return word_path, pdf_path
