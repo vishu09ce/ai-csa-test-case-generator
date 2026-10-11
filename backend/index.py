@@ -12,6 +12,11 @@ from backend.src.utils.error_handler import (
     validation_exception_handler, sqlalchemy_exception_handler, generic_exception_handler
 )
 import os
+import shutil
+from backend.src.utils.file_store import STORAGE_ROOT
+from backend.src.utils.logger import get_logger
+
+logger = get_logger("backend.startup")
 
 load_dotenv()
 
@@ -46,6 +51,11 @@ app.include_router(status.router)
 @app.on_event("startup")
 def on_startup():
     init_db()
+    logger.info(
+        "Startup: cwd=%s storage=%s db=%s soffice=%s",
+        os.getcwd(), os.path.abspath(STORAGE_ROOT), os.path.abspath("app.db"),
+        shutil.which("soffice") or shutil.which("libreoffice"),
+    )
 
 
 @app.get("/health")

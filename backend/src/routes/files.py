@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from backend.src.database import get_db
 from backend.src.models import Project, ProjectState, GeneratedDocument
 from backend.src.utils.file_store import get_project_dir, zip_package_path
+from backend.src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/projects", tags=["files"])
 
@@ -23,6 +26,7 @@ def download_file(project_id: str, file_name: str, db: Session = Depends(get_db)
     file_path = os.path.join(project_dir, safe_name)
 
     if not os.path.exists(file_path):
+        logger.warning("File not found: %s; folder contains: %s", os.path.abspath(file_path), sorted(os.listdir(project_dir)))
         raise HTTPException(status_code=404, detail="File not found.")
 
     return FileResponse(path=file_path, filename=safe_name)
