@@ -11,9 +11,11 @@ from backend.src.routes import projects, uploads, generation, files, status
 from backend.src.utils.error_handler import (
     validation_exception_handler, sqlalchemy_exception_handler, generic_exception_handler
 )
+import asyncio
 import os
 import shutil
 from backend.src.utils.file_store import STORAGE_ROOT
+from backend.src.services.keep_alive import get_keep_alive_url, get_interval_seconds, run_keep_alive
 from backend.src.utils.logger import get_logger
 
 logger = get_logger("backend.startup")
@@ -49,13 +51,25 @@ app.include_router(status.router)
 
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     init_db()
     logger.info(
         "Startup: cwd=%s storage=%s db=%s soffice=%s",
         os.getcwd(), os.path.abspath(STORAGE_ROOT), os.path.abspath("app.db"),
         shutil.which("soffice") or shutil.which("libreoffice"),
     )
+    keep_alive_url = get_keep_alive_url()
+    if keep_alive_url:
+        app.state.keep_alive_task = asyncio.create_task(
+            run_keep_alive(keep_alive_url, get_interval_seconds())
+        )
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    task = getattr(app.state, "keep_alive_task", None)
+    if task:
+        task.cancel()
 
 
 @app.get("/health")
