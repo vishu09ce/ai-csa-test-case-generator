@@ -102,6 +102,8 @@ export default function ProjectDetail() {
   const { state, documents, active_jobs } = status
   const docMap = Object.fromEntries((documents || []).map(d => [d.doc_code, d]))
   const isGenerating = active_jobs?.some(j => j.status === 'IN_PROGRESS')
+  const latestJob = active_jobs?.[0]
+  const failedJob = !isGenerating && latestJob?.status === 'FAILED' ? latestJob : null
   const submitDocCode = SUBMIT_DOC_MAP[state]
   const submitDoc = submitDocCode ? docMap[submitDocCode] : null
   const canSubmit = submitDoc?.has_hitl_pdf && !isGenerating
@@ -139,6 +141,11 @@ export default function ProjectDetail() {
           : 'Document generation in progress...'
         return <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm rounded-lg px-4 py-3 mb-4">⏳ {progressText}</div>
       })()}
+      {failedJob && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">
+          {failedJob.doc_code} generation failed: {failedJob.error || 'Unknown error.'}
+        </div>
+      )}
 
       {state === 'DRAFT' && (
         <div className="bg-white border rounded-lg p-5 shadow-sm mb-6">

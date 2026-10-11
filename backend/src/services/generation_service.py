@@ -94,10 +94,12 @@ def _complete_job(job: GenerationJob, db: Session) -> None:
     db.commit()
 
 
-def _fail_job(job: GenerationJob, error: str, db: Session) -> None:
+def _fail_job(job: GenerationJob, doc_record: GeneratedDocument, error: str, db: Session) -> None:
+    db.rollback()
     job.status = JobStatus.FAILED
     job.error_message = error
     job.completed_at = datetime.now(timezone.utc)
+    doc_record.status = DocumentStatus.NOT_STARTED
     db.commit()
 
 
@@ -210,7 +212,7 @@ async def generate_sap(project_id: str, system_type: str, db: Session) -> Genera
         _complete_job(job, db)
         return doc_record
     except Exception as e:
-        _fail_job(job, str(e), db)
+        _fail_job(job, doc_record, str(e), db)
         raise
 
 
@@ -237,7 +239,7 @@ async def generate_pra(project_id: str, system_type: str, db: Session) -> Genera
         _complete_job(job, db)
         return doc_record
     except Exception as e:
-        _fail_job(job, str(e), db)
+        _fail_job(job, doc_record, str(e), db)
         raise
 
 
@@ -286,7 +288,7 @@ async def generate_rtm_stp_utr(project_id: str, db: Session) -> list[GeneratedDo
         _complete_job(rtm_job, db)
         results.append(rtm_record)
     except Exception as e:
-        _fail_job(rtm_job, str(e), db)
+        _fail_job(rtm_job, rtm_record, str(e), db)
         raise
 
     # STP — parallel per-requirement calls with resume support
@@ -312,7 +314,7 @@ async def generate_rtm_stp_utr(project_id: str, db: Session) -> list[GeneratedDo
         _complete_job(stp_job, db)
         results.append(stp_record)
     except Exception as e:
-        _fail_job(stp_job, str(e), db)
+        _fail_job(stp_job, stp_record, str(e), db)
         raise
 
     # UTR — parallel per-requirement calls with resume support
@@ -338,7 +340,7 @@ async def generate_rtm_stp_utr(project_id: str, db: Session) -> list[GeneratedDo
         _complete_job(utr_job, db)
         results.append(utr_record)
     except Exception as e:
-        _fail_job(utr_job, str(e), db)
+        _fail_job(utr_job, utr_record, str(e), db)
         raise
 
     return results
@@ -375,5 +377,5 @@ async def generate_asr(project_id: str, db: Session) -> GeneratedDocument:
         _complete_job(job, db)
         return doc_record
     except Exception as e:
-        _fail_job(job, str(e), db)
+        _fail_job(job, doc_record, str(e), db)
         raise
