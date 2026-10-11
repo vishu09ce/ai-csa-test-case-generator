@@ -4,7 +4,7 @@ import asyncio
 import litellm
 from fastapi import HTTPException
 
-MODEL = os.getenv("LITELLM_MODEL", "groq/llama3-70b-8192")
+MODEL = os.getenv("LITELLM_MODEL", "groq/openai/gpt-oss-120b")
 
 MAX_RETRIES = 3
 BACKOFF_DELAYS = [1, 2, 4]  # seconds
