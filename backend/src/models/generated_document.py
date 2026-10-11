@@ -1,12 +1,12 @@
 import uuid
-from enum import Enum
+from enum import StrEnum
 from datetime import datetime, timezone
 from sqlalchemy import String, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from backend.src.models.base import Base
 
 
-class DocCode(str, Enum):
+class DocCode(StrEnum):
     SAP = "SAP"
     PRA = "PRA"
     RTM = "RTM"
@@ -15,7 +15,7 @@ class DocCode(str, Enum):
     ASR = "ASR"
 
 
-class DocumentStatus(str, Enum):
+class DocumentStatus(StrEnum):
     NOT_STARTED = "NOT_STARTED"
     GENERATING = "GENERATING"
     AI_COMPLETE = "AI_COMPLETE"

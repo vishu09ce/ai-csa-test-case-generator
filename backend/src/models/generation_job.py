@@ -1,12 +1,12 @@
 import uuid
-from enum import Enum
+from enum import StrEnum
 from datetime import datetime, timezone
 from sqlalchemy import String, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from backend.src.models.base import Base
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETE = "COMPLETE"
