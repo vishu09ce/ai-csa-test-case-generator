@@ -1,12 +1,12 @@
 import uuid
-from enum import Enum
+from enum import StrEnum
 from datetime import datetime, timezone
 from sqlalchemy import String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from backend.src.models.base import Base
 
 
-class ProjectState(str, Enum):
+class ProjectState(StrEnum):
     DRAFT = "DRAFT"
     SAP_REVIEW = "SAP_REVIEW"
     PRA_REVIEW = "PRA_REVIEW"
